@@ -8,9 +8,97 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-function buildAnalysisPrompt(prompt: string) {
+// Structured Outputs schemas — Claude's generation is constrained at the token
+// level to match these exactly, so malformed/truncated JSON is structurally
+// impossible. Split into two requests so the person sees a score fast (~2-4s)
+// instead of waiting 10+ seconds for the full report, which also sidesteps
+// Vercel Hobby's hard 10s function timeout.
+
+const quickScoreSchema = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    overallScore: { type: "integer", minimum: 0, maximum: 100 },
+    rank: { type: "string", enum: ["Beginner", "Explorer", "Builder", "Architect", "Prompt Master"] },
+    readyToBuild: { type: "boolean" },
+    categoryScores: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          score: { type: "integer", minimum: 0, maximum: 10 },
+        },
+        required: ["name", "score"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["title", "overallScore", "rank", "readyToBuild", "categoryScores"],
+  additionalProperties: false,
+};
+
+const categorySchema = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    score: { type: "integer", minimum: 0, maximum: 10 },
+    strengths: { type: "array", items: { type: "string" } },
+    weaknesses: { type: "array", items: { type: "string" } },
+    recommendations: { type: "array", items: { type: "string" } },
+  },
+  required: ["name", "score", "strengths", "weaknesses", "recommendations"],
+  additionalProperties: false,
+};
+
+const fullDetailSchema = {
+  type: "object",
+  properties: {
+    detailedCategories: { type: "array", items: categorySchema },
+    missingRequirements: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          items: { type: "array", items: { type: "string" } },
+        },
+        required: ["title", "items"],
+        additionalProperties: false,
+      },
+    },
+    aiCompatibility: {
+      type: "object",
+      properties: {
+        claude: { type: "integer", minimum: 0, maximum: 100 },
+        gemini: { type: "integer", minimum: 0, maximum: 100 },
+        codex: { type: "integer", minimum: 0, maximum: 100 },
+        cursor: { type: "integer", minimum: 0, maximum: 100 },
+      },
+      required: ["claude", "gemini", "codex", "cursor"],
+      additionalProperties: false,
+    },
+    simulation: {
+      type: "object",
+      properties: {
+        willBuildCorrectly: { type: "array", items: { type: "string" } },
+        potentialMisunderstandings: { type: "array", items: { type: "string" } },
+        missingAssumptions: { type: "array", items: { type: "string" } },
+        implementationRisks: { type: "array", items: { type: "string" } },
+      },
+      required: ["willBuildCorrectly", "potentialMisunderstandings", "missingAssumptions", "implementationRisks"],
+      additionalProperties: false,
+    },
+    improvedPrompt: { type: "string" },
+  },
+  required: ["detailedCategories", "missingRequirements", "aiCompatibility", "simulation", "improvedPrompt"],
+  additionalProperties: false,
+};
+
+
+function buildQuickScorePrompt(prompt: string) {
   return `
-You are BuildReady, a senior staff engineer and technical co-founder who has reviewed thousands of build prompts before they get sent to AI coding tools. You are skeptical by default. Most prompts you see are underspecified, and your job is to catch exactly what's missing before the person burns AI credits and engineering time on a misinterpreted spec.
+You are BuildReady, a senior staff engineer who has reviewed thousands of build prompts before they get sent to AI coding tools. You are skeptical by default — most prompts are underspecified.
 
 PROMPT TO ANALYZE:
 """
@@ -18,57 +106,44 @@ ${prompt}
 """
 
 GRADING RULES (apply strictly — do not be generous):
-- A score of 8-10 in any category requires the prompt to EXPLICITLY state relevant details for that category. Implied or "could be inferred" details do not count.
-- A score of 5-7 means the category is partially addressed but has clear, specific gaps.
-- A score of 0-4 means the category is missing entirely or only gestured at in one vague phrase.
-- Do not round scores up to be encouraging. A short, vague prompt should score low across most categories — that is the correct, useful outcome.
-- "Build a [type of app] with [3-4 features]" with no mention of data model, auth, roles, or edge cases should score in the 15-35 overall range, not 50+.
-- Every strength, weakness, and recommendation must reference something concrete from the actual prompt text — never generic boilerplate like "consider adding more detail." Quote or paraphrase the specific gap.
-- For "missingRequirements": only include items the prompt genuinely does not address. Do not pad the list.
-- For "aiCompatibility": score each tool based on how much the prompt's ambiguity would cause that specific tool to diverge from intent. Claude and Cursor tend to ask fewer clarifying assumptions and fill gaps more conservatively; Codex and Gemini are more likely to over-assume.
-- "improvedPrompt" must fix every weakness you identified — the specific gaps found in THIS prompt, not generic best practices.
+- A score of 8-10 in any category requires the prompt to EXPLICITLY state relevant details. Implied details do not count.
+- A score of 5-7 means partially addressed with clear gaps. A score of 0-4 means missing or only gestured at.
+- "Build a [type of app] with [3-4 features]" with no data model, auth, roles, or edge cases should score 15-35 overall, not 50+.
 
-JSON FORMATTING RULES (critical — broken JSON makes the entire report unusable):
-- Every string value must be valid JSON: escape all double quotes inside text as \", escape backslashes as \\\\, and use \\n for line breaks instead of literal newlines.
-- Do NOT use unescaped straight or curly quotes, em-dashes followed by quotes, or apostrophes that could be confused with string delimiters — when in doubt, rephrase to avoid the character rather than risk breaking the string.
-- The "improvedPrompt" field especially must be a single valid JSON string with \\n for paragraph breaks, not literal multi-line text.
-- Before finalizing, mentally verify every object and array is properly closed and every string is properly terminated.
+The "categoryScores" array must contain exactly these 11 categories, in this order: Vision, Users, Features, UX Design, Architecture, Database Design, Security, Monetization, Edge Cases, Scalability, AI Readiness.
 
-Return ONLY valid JSON in this exact structure (no markdown, no explanation, no preamble):
-{
-  "title": "short 3-5 word title for this prompt",
-  "overallScore": <number 0-100>,
-  "rank": "<one of: Beginner|Explorer|Builder|Architect|Prompt Master>",
-  "readyToBuild": <boolean>,
-  "categories": [
-    { "name": "Vision", "score": <0-10>, "strengths": ["..."], "weaknesses": ["..."], "recommendations": ["..."] },
-    { "name": "Users", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] },
-    { "name": "Features", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] },
-    { "name": "UX Design", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] },
-    { "name": "Architecture", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] },
-    { "name": "Database Design", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] },
-    { "name": "Security", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] },
-    { "name": "Monetization", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] },
-    { "name": "Edge Cases", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] },
-    { "name": "Scalability", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] },
-    { "name": "AI Readiness", "score": <0-10>, "strengths": [], "weaknesses": [], "recommendations": [] }
-  ],
-  "missingRequirements": [ { "title": "...", "items": ["..."] } ],
-  "aiCompatibility": { "claude": <0-100>, "gemini": <0-100>, "codex": <0-100>, "cursor": <0-100> },
-  "simulation": {
-    "willBuildCorrectly": ["..."],
-    "potentialMisunderstandings": ["..."],
-    "missingAssumptions": ["..."],
-    "implementationRisks": ["..."]
-  },
-  "improvedPrompt": "A significantly improved, detailed version of the original prompt that addresses every identified weakness. 2-4 paragraphs, comprehensive and production-ready."
+Give ONLY the scores right now — no explanations, no lists. Just the numbers and verdict.
+`;
 }
+
+function buildFullDetailPrompt(prompt: string, weakestCategories: { name: string; score: number }[]) {
+  const namesContext = weakestCategories.map((c) => `${c.name} (${c.score}/10)`).join(", ");
+  return `
+You are BuildReady, a senior staff engineer who has reviewed thousands of build prompts before they get sent to AI coding tools.
+
+PROMPT TO ANALYZE:
+"""
+${prompt}
+"""
+
+You already scored this prompt across 11 categories. The weakest ones — the ones worth explaining — are: ${namesContext}.
+
+Produce "detailedCategories" for ONLY these specific categories (same name and score as given above, do not change the score), with exactly 1 short strength, 1 short weakness, and 1 short recommendation each — one sentence max per item.
+
+Then also produce:
+- "missingRequirements": at most 2 items, each with at most 2 sub-items.
+- "aiCompatibility": a 0-100 score for claude, gemini, codex, cursor based on how much the prompt's ambiguity would cause each tool to diverge from intent. Claude and Cursor fill gaps more conservatively; Codex and Gemini over-assume more.
+- "simulation": exactly 1 short item each for willBuildCorrectly, potentialMisunderstandings, missingAssumptions, implementationRisks.
+- "improvedPrompt": a rewritten version of the prompt fixing the weaknesses found, as ONE short paragraph (3-5 sentences) — the single highest-impact fix, not exhaustive.
+
+Be extremely concise everywhere. Speed matters more than exhaustiveness — short, sharp, and useful beats long.
 `;
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt } = await req.json();
+    const body = await req.json();
+    const { prompt, stage, categoryScores } = body;
 
     if (!prompt || typeof prompt !== "string" || prompt.trim().length < 30) {
       return NextResponse.json(
@@ -84,6 +159,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const isFullStage = stage === "full";
+
+    if (isFullStage && (!Array.isArray(categoryScores) || categoryScores.length === 0)) {
+      return NextResponse.json(
+        { error: "Missing categoryScores for full-detail stage." },
+        { status: 400 }
+      );
+    }
+
+    // Only the 3 weakest categories get full detail — the rest stay score-only.
+    // This is also better UX (nobody needs paragraphs on a high-scoring category)
+    // and keeps stage 2's real output small enough (~400-600 tokens at ~50 tok/s
+    // generation speed) to finish within Vercel's 10s cap with margin.
+    const weakestCategories = isFullStage
+      ? [...categoryScores].sort((a, b) => a.score - b.score).slice(0, 3)
+      : [];
+
+    const messageContent = isFullStage
+      ? buildFullDetailPrompt(prompt, weakestCategories)
+      : buildQuickScorePrompt(prompt);
+
+    const schema = isFullStage ? fullDetailSchema : quickScoreSchema;
+
     const encoder = new TextEncoder();
 
     const stream = new ReadableStream({
@@ -91,8 +189,15 @@ export async function POST(req: NextRequest) {
         try {
           const anthropicStream = anthropic.messages.stream({
             model: "claude-sonnet-4-6",
-            max_tokens: 8000,
-            messages: [{ role: "user", content: buildAnalysisPrompt(prompt) }],
+            max_tokens: isFullStage ? 1200 : 800,
+            messages: [{ role: "user", content: messageContent }],
+            // @ts-expect-error -- output_config is GA on the API but not yet in SDK types
+            output_config: {
+              format: {
+                type: "json_schema",
+                schema,
+              },
+            },
           });
 
           // Forward a small heartbeat comment periodically so Vercel/proxies
