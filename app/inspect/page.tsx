@@ -29,14 +29,6 @@ const rankColors: Record<string, string> = {
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
-
-  useEffect(() => {
-    const template = sessionStorage.getItem("buildready_template");
-    if (template) {
-      setPrompt(template);
-      sessionStorage.removeItem("buildready_template");
-    }
-  }, []);
   const [loading, setLoading] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailFailed, setDetailFailed] = useState(false);
@@ -45,6 +37,14 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("breakdown");
   const [copied, setCopied] = useState(false);
   const MAX = 3000;
+
+  useEffect(() => {
+    const template = sessionStorage.getItem("buildready_template");
+    if (template) {
+      setPrompt(template);
+      sessionStorage.removeItem("buildready_template");
+    }
+  }, []);
 
   async function streamRequest(body: any): Promise<any> {
     const res = await fetch("/api/analyze", {
@@ -88,18 +88,14 @@ export default function Home() {
             fullText += parsed.delta;
           }
         } catch {
-          // ignore malformed SSE chunk, keep reading
+          // ignore malformed SSE chunk
         }
       }
     }
 
-    if (streamError) {
-      throw new Error(streamError);
-    }
-    if (!fullText.trim()) {
-      throw new Error("Empty response from model.");
-    }
-    return JSON.parse(fullText); // guaranteed valid JSON via output_config.format schema enforcement
+    if (streamError) throw new Error(streamError);
+    if (!fullText.trim()) throw new Error("Empty response from model.");
+    return JSON.parse(fullText);
   }
 
   async function saveAnalysis(finalResult: any) {
@@ -115,8 +111,7 @@ export default function Home() {
         full_result: finalResult,
       });
     } catch {
-      // Saving is best-effort — a failed save should never block or break
-      // the person's view of their own analysis results.
+      // best-effort, never block the UI
     }
   }
 
@@ -125,14 +120,10 @@ export default function Home() {
     setError(null);
     setDetailFailed(false);
     try {
-      // Stage 1: quick score — fast, shows immediately
       const quick = await streamRequest({ prompt, stage: "quick" });
-      setResult({ ...quick, categories: quick.categoryScores }); // show scores right away
+      setResult({ ...quick, categories: quick.categoryScores });
       setLoading(false);
 
-      // Stage 2: full detail — runs after, fills in the rest. If it fails or
-      // times out, the person still has a complete, usable score report from
-      // stage 1, so this never blocks or breaks the core experience.
       setLoadingDetail(true);
       try {
         const detail = await streamRequest({
@@ -157,9 +148,9 @@ export default function Home() {
           return merged;
         });
         saveAnalysis(finalResult);
-      } catch (detailErr) {
+      } catch {
         setDetailFailed(true);
-        saveAnalysis(quick); // still save the quick-score result, better than losing it
+        saveAnalysis(quick);
       }
       setLoadingDetail(false);
     } catch (e: any) {
@@ -212,7 +203,7 @@ export default function Home() {
           {loading && (
             <div style={{ marginTop: 24, textAlign: "center", color: C.muted, fontSize: 14 }}>
               <div style={{ width: 36, height: 36, margin: "0 auto 12px", border: `3px solid ${C.border}`, borderTop: `3px solid ${C.blue}`, borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-              Running full 11-category analysis — this can take 20-40 seconds.
+              Running 11-category analysis — this can take 20-40 seconds.
             </div>
           )}
 
@@ -255,138 +246,5 @@ export default function Home() {
 
         {detailFailed && (
           <div style={{ marginBottom: 20, padding: "10px 16px", background: C.orange + "0D", border: `1px solid ${C.orange}25`, borderRadius: 8, color: C.orange, fontSize: 13 }}>
-            Detailed breakdown couldn't load this time, but your scores above are complete and accurate. Try analyzing again for the full report.
+            Detailed breakdown timed out, but your scores are complete. Try analyzing again for the full report.
           </div>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16, marginBottom: 24 }}>
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 28 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.dim, marginBottom: 20, textTransform: "uppercase" }}>Build Readiness</div>
-            <div style={{ fontSize: 48, fontWeight: 800, color: scoreColor(clamp(result.overallScore, 0, 100) / 10), textAlign: "center", marginBottom: 24 }}>
-              {clamp(result.overallScore, 0, 100)}<span style={{ fontSize: 20, color: C.dim }}>/100</span>
-            </div>
-            <div style={{ fontSize: 12, color: C.dim, marginBottom: 12, textTransform: "uppercase" }}>AI Compatibility</div>
-            {!result.aiCompatibility ? (
-              <div style={{ color: C.dim, fontSize: 13 }}>Loading…</div>
-            ) : Object.entries(result.aiCompatibility).map(([ai, val]: any) => (
-              <div key={ai} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 13, textTransform: "capitalize" }}>{ai}</span>
-                  <span style={{ fontSize: 13, color: scoreColor(val / 10) }}>{val}%</span>
-                </div>
-                <div style={{ height: 6, background: C.border, borderRadius: 3 }}>
-                  <div style={{ height: "100%", width: `${val}%`, background: scoreColor(val / 10), borderRadius: 3 }} />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 28 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.dim, marginBottom: 20, textTransform: "uppercase" }}>Score Breakdown</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {result.categories.map((cat: any) => (
-                <div key={cat.name}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                    <span style={{ fontSize: 13 }}>{cat.name}</span>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: scoreColor(cat.score) }}>{cat.score}/10</span>
-                  </div>
-                  <div style={{ height: 6, background: C.border, borderRadius: 3 }}>
-                    <div style={{ height: "100%", width: `${cat.score * 10}%`, background: scoreColor(cat.score), borderRadius: 3 }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 28 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.dim, marginBottom: 20, textTransform: "uppercase" }}>Missing Requirements</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {!result.missingRequirements ? (
-                <div style={{ color: C.dim, fontSize: 13 }}>Loading…</div>
-              ) : result.missingRequirements.length === 0 ? (
-                <div style={{ color: C.green, fontSize: 14 }}>✓ No critical requirements missing</div>
-              ) : result.missingRequirements.map((req: any) => (
-                <div key={req.title} style={{ background: C.orange + "0D", border: `1px solid ${C.orange}25`, borderRadius: 8, padding: 14 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: C.orange }}>{req.title}</div>
-                  {req.items.map((item: string) => (
-                    <div key={item} style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>· {item}</div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 24 }}>
-          {[["breakdown", "Category Details"], ["simulation", "AI Simulation"], ["improved", "Improved Prompt"]].map(([id, label]) => (
-            <button key={id} onClick={() => setActiveTab(id)} style={{ padding: "12px 20px", background: "none", border: "none", borderBottom: `2px solid ${activeTab === id ? C.blue : "transparent"}`, color: activeTab === id ? C.text : C.muted, fontSize: 14, fontWeight: activeTab === id ? 600 : 400, cursor: "pointer" }}>{label}</button>
-          ))}
-        </div>
-
-        {activeTab === "breakdown" && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 16 }}>
-            {result.categories.map((cat: any) => (
-              <div key={cat.name} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{cat.name}</div>
-                  <span style={{ fontWeight: 800, fontSize: 20, color: scoreColor(cat.score) }}>{cat.score}</span>
-                </div>
-                {cat.strengths?.length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: C.green, marginBottom: 6 }}>STRENGTHS</div>
-                    {cat.strengths.map((s: string) => <div key={s} style={{ fontSize: 12, color: C.muted, marginBottom: 3 }}>{s}</div>)}
-                  </div>
-                )}
-                {cat.weaknesses?.length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: C.red, marginBottom: 6 }}>WEAKNESSES</div>
-                    {cat.weaknesses.map((s: string) => <div key={s} style={{ fontSize: 12, color: C.muted, marginBottom: 3 }}>{s}</div>)}
-                  </div>
-                )}
-                {cat.recommendations?.length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: C.blue, marginBottom: 6 }}>RECOMMENDATIONS</div>
-                    {cat.recommendations.map((s: string) => <div key={s} style={{ fontSize: 12, color: C.muted, marginBottom: 3 }}>{s}</div>)}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {activeTab === "simulation" && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 16 }}>
-            {[
-              { label: "Will Build Correctly", color: C.green, items: result.simulation?.willBuildCorrectly || [] },
-              { label: "Potential Misunderstandings", color: C.orange, items: result.simulation?.potentialMisunderstandings || [] },
-              { label: "Missing Assumptions", color: C.blue, items: result.simulation?.missingAssumptions || [] },
-              { label: "Implementation Risks", color: C.red, items: result.simulation?.implementationRisks || [] },
-            ].map(({ label, color, items }) => (
-              <div key={label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color, marginBottom: 14 }}>{label}</div>
-                {items.map((item: string, i: number) => (
-                  <div key={i} style={{ fontSize: 13, color: C.muted, marginBottom: 8, paddingLeft: 10, borderLeft: `2px solid ${color}40` }}>{item}</div>
-                ))}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {activeTab === "improved" && (
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
-            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: C.dim }}>improved-prompt.txt</span>
-              <button onClick={copyImproved} disabled={!result.improvedPrompt} style={{ background: "none", border: `1px solid ${C.border}`, color: C.muted, padding: "6px 14px", borderRadius: 6, fontSize: 12, cursor: result.improvedPrompt ? "pointer" : "not-allowed", opacity: result.improvedPrompt ? 1 : 0.5 }}>
-                {copied ? "✓ Copied" : "Copy"}
-              </button>
-            </div>
-            <pre style={{ padding: 24, fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "monospace" }}>
-              {result.improvedPrompt || (loadingDetail ? "Generating improved prompt…" : "Not available.")}
-            </pre>
-          </div>
-        )}
-      </div>
-      <BottomNav />
-    </div>
-  );
-}
