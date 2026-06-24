@@ -5,15 +5,23 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import BottomNav from "@/components/BottomNav";
+import { Card } from "@/components/ui/Card";
+import { LinkButton } from "@/components/ui/Button";
+import { RankBadge } from "@/components/ui/Badge";
+import { Icon } from "@/components/ui/Icon";
+import { Logo } from "@/components/ui/Logo";
 
-const C = {
-  bg: "#0A0A0A", card: "#111111", border: "#1E1E1E",
-  text: "#FFFFFF", muted: "#A1A1AA", dim: "#52525B",
-  blue: "#3B82F6", green: "#22C55E", orange: "#F59E0B", red: "#EF4444",
+type Row = {
+  id: string;
+  title: string;
+  overall_score: number;
+  rank: string;
+  ready_to_build: boolean;
+  created_at: string;
 };
 
 export default function Dashboard() {
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,89 +39,159 @@ export default function Dashboard() {
     load();
   }, []);
 
-  const avgScore = history.length
+  const avg = history.length
     ? Math.round(history.reduce((a, h) => a + h.overall_score, 0) / history.length)
     : null;
-  const readyCount = history.filter((h) => h.ready_to_build).length;
-  const recent = history.slice(0, 3);
+  const ready = history.filter((h) => h.ready_to_build).length;
+  const recent = history.slice(0, 4);
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, paddingBottom: 90 }}>
-      <div style={{ padding: "40px 20px", maxWidth: 900, margin: "0 auto" }}>
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em", marginBottom: 6 }}>Dashboard</h1>
-          <p style={{ color: C.muted, fontSize: 15 }}>Welcome back. Inspect prompts, track improvements, ship better products.</p>
+    <div className="min-h-screen bg-bg pb-24">
+      <header className="border-b border-border">
+        <div className="max-w-3xl mx-auto px-5 h-14 flex items-center justify-between">
+          <Logo size={22} />
+          <Link
+            href="/settings"
+            className="text-muted hover:text-fg transition-colors"
+          >
+            <Icon name="settings" size={18} />
+          </Link>
         </div>
+      </header>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 12, marginBottom: 28 }}>
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-            <div style={{ color: C.dim, fontSize: 22, marginBottom: 10 }}>◎</div>
-            <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-0.04em", marginBottom: 4 }}>
-              {loading ? "…" : history.length}
-            </div>
-            <div style={{ color: C.muted, fontSize: 13 }}>Total Analyses</div>
-          </div>
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-            <div style={{ color: C.dim, fontSize: 22, marginBottom: 10 }}>⊕</div>
-            <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-0.04em", marginBottom: 4 }}>
-              {loading ? "…" : avgScore !== null ? `${avgScore}/100` : "—"}
-            </div>
-            <div style={{ color: C.muted, fontSize: 13 }}>Avg Score</div>
-          </div>
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
-            <div style={{ color: C.dim, fontSize: 22, marginBottom: 10 }}>◆</div>
-            <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-0.04em", marginBottom: 4 }}>
-              {loading ? "…" : readyCount}
-            </div>
-            <div style={{ color: C.muted, fontSize: 13 }}>Ready to Build</div>
-          </div>
-        </div>
+      <main className="max-w-3xl mx-auto px-5 pt-8 flex flex-col gap-6">
+        <section>
+          <h1 className="text-3xl font-bold tracking-tighter mb-1">Dashboard</h1>
+          <p className="text-muted text-md">
+            Inspect prompts, track improvements, ship better products.
+          </p>
+        </section>
 
-        <div style={{ background: C.blue + "0A", border: `1px solid ${C.blue}30`, borderRadius: 12, padding: 28, marginBottom: 28 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+        <section className="grid grid-cols-3 gap-2">
+          <Stat
+            icon="stack"
+            label="Analyses"
+            value={loading ? "—" : String(history.length)}
+          />
+          <Stat
+            icon="score"
+            label="Avg score"
+            value={loading ? "—" : avg !== null ? `${avg}` : "—"}
+            mono
+          />
+          <Stat
+            icon="check"
+            label="Ready"
+            value={loading ? "—" : String(ready)}
+            mono
+          />
+        </section>
+
+        <Card padding="lg" className="bg-accent-soft border-accent-line">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>Ready to inspect a prompt?</div>
-              <div style={{ color: C.muted, fontSize: 14 }}>Paste any AI build prompt and get a full readiness report.</div>
+              <div className="font-semibold text-md mb-1">
+                Inspect a new prompt
+              </div>
+              <div className="text-muted text-sm">
+                Paste any AI build prompt, get a full readiness report in
+                seconds.
+              </div>
             </div>
-            <Link href="/inspect" style={{ padding: "10px 20px", borderRadius: 8, background: C.blue, color: "#fff", fontWeight: 600, fontSize: 14, textDecoration: "none", whiteSpace: "nowrap" }}>
-              Inspect Prompt →
-            </Link>
+            <LinkButton href="/inspect">
+              Inspect <Icon name="arrowRight" size={14} />
+            </LinkButton>
           </div>
-        </div>
+        </Card>
 
         {!loading && recent.length > 0 && (
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>Recent Analyses</div>
-              <Link href="/history" style={{ fontSize: 13, color: C.blue, textDecoration: "none" }}>View all →</Link>
+          <section>
+            <div className="flex items-baseline justify-between mb-3">
+              <h3 className="text-sm font-semibold uppercase tracking-tight text-muted">
+                Recent
+              </h3>
+              <Link
+                href="/history"
+                className="text-sm text-accent hover:underline"
+              >
+                View all
+              </Link>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="flex flex-col gap-1.5">
               {recent.map((item) => (
-                <div key={item.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 3 }}>{item.title}</div>
-                    <div style={{ color: C.dim, fontSize: 12 }}>{new Date(item.created_at).toLocaleDateString()}</div>
+                <Link
+                  key={item.id}
+                  href="/history"
+                  className="bg-surface border border-border rounded-md p-3.5 flex items-center justify-between gap-3 hover:border-border-strong transition-colors"
+                >
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm truncate">
+                      {item.title}
+                    </div>
+                    <div className="text-xs text-dim mt-0.5">
+                      {new Date(item.created_at).toLocaleDateString(undefined, {
+                        day: "numeric",
+                        month: "short",
+                      })}
+                    </div>
                   </div>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={{ fontWeight: 700, color: item.overall_score >= 70 ? C.green : item.overall_score >= 50 ? C.blue : C.orange }}>
-                      {item.overall_score}/100
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <RankBadge rank={item.rank} />
+                    <span
+                      className={`mono text-sm font-semibold w-10 text-right ${
+                        item.overall_score >= 70
+                          ? "text-success"
+                          : item.overall_score >= 50
+                            ? "text-accent"
+                            : "text-warning"
+                      }`}
+                    >
+                      {item.overall_score}
                     </span>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
         {!loading && history.length === 0 && (
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 40, textAlign: "center" }}>
-            <div style={{ fontSize: 28, marginBottom: 12, color: C.dim }}>◎</div>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>No analyses yet</div>
-            <div style={{ color: C.muted, fontSize: 14 }}>Inspect your first prompt to see it here.</div>
-          </div>
+          <Card padding="lg" className="text-center py-12">
+            <Icon name="inspect" size={28} className="text-dim mx-auto mb-3" />
+            <div className="font-semibold mb-1">No analyses yet</div>
+            <div className="text-sm text-muted">
+              Inspect your first prompt to see it here.
+            </div>
+          </Card>
         )}
-      </div>
+      </main>
       <BottomNav />
     </div>
+  );
+}
+
+function Stat({
+  icon,
+  label,
+  value,
+  mono = false,
+}: {
+  icon: "stack" | "score" | "check";
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <Card padding="md">
+      <Icon name={icon} size={14} className="text-dim mb-3" />
+      <div
+        className={`text-3xl font-bold tracking-tighter mb-0.5 ${
+          mono ? "mono" : ""
+        }`}
+      >
+        {value}
+      </div>
+      <div className="text-xs text-muted">{label}</div>
+    </Card>
   );
 }

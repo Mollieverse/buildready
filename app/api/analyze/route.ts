@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { streamAnalysis } from "@/lib/providers";
 
 export const runtime = "nodejs";
-export const maxDuration = 10;
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+export const maxDuration = 30;
 
 const quickScoreSchema = {
   type: "object",
   properties: {
     title: { type: "string" },
     overallScore: { type: "integer" },
-    rank: { type: "string", enum: ["Beginner", "Explorer", "Builder", "Architect", "Prompt Master"] },
+    rank: {
+      type: "string",
+      enum: ["Beginner", "Explorer", "Builder", "Architect", "Prompt Master"],
+    },
     readyToBuild: { type: "boolean" },
     categoryScores: {
       type: "array",
@@ -80,12 +79,23 @@ const fullDetailSchema = {
         missingAssumptions: { type: "array", items: { type: "string" } },
         implementationRisks: { type: "array", items: { type: "string" } },
       },
-      required: ["willBuildCorrectly", "potentialMisunderstandings", "missingAssumptions", "implementationRisks"],
+      required: [
+        "willBuildCorrectly",
+        "potentialMisunderstandings",
+        "missingAssumptions",
+        "implementationRisks",
+      ],
       additionalProperties: false,
     },
     improvedPrompt: { type: "string" },
   },
-  required: ["detailedCategories", "missingRequirements", "aiCompatibility", "simulation", "improvedPrompt"],
+  required: [
+    "detailedCategories",
+    "missingRequirements",
+    "aiCompatibility",
+    "simulation",
+    "improvedPrompt",
+  ],
   additionalProperties: false,
 };
 
@@ -105,14 +115,21 @@ GRADING RULES (apply strictly — do not be generous):
 - A score of 5-7 means partially addressed with clear gaps. A score of 0-4 means missing or only gestured at.
 - "Build a [type of app] with [3-4 features]" with no data model, auth, roles, or edge cases should score 15-35 overall, not 50+.
 
+"title" must be 3-6 words summarizing what the user is trying to build (e.g., "B2B SaaS Project Management Tool").
+
 The "categoryScores" array must contain exactly these 11 categories in this order: Vision, Users, Features, UX Design, Architecture, Database Design, Security, Monetization, Edge Cases, Scalability, AI Readiness.
 
 Give ONLY the scores — no explanations. Just the numbers and verdict.
 `;
 }
 
-function buildFullDetailPrompt(prompt: string, weakestCategories: { name: string; score: number }[]) {
-  const namesContext = weakestCategories.map((c) => `${c.name} (${c.score}/10)`).join(", ");
+function buildFullDetailPrompt(
+  prompt: string,
+  weakestCategories: { name: string; score: number }[],
+) {
+  const namesContext = weakestCategories
+    .map((c) => `${c.name} (${c.score}/10)`)
+    .join(", ");
   return `
 You are BuildReady, a senior staff engineer who has reviewed thousands of build prompts before they get sent to AI coding tools.
 
@@ -141,17 +158,32 @@ export async function POST(req: NextRequest) {
     const { prompt, stage, categoryScores } = body;
 
     if (!prompt || typeof prompt !== "string" || prompt.trim().length < 30) {
-      return NextResponse.json({ error: "Prompt must be at least 30 characters." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Prompt must be at least 30 characters." },
+        { status: 400 },
+      );
     }
 
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return NextResponse.json({ error: "Server misconfigured: missing ANTHROPIC_API_KEY." }, { status: 500 });
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.GEMINI_API_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            "Server misconfigured: set ANTHROPIC_API_KEY or GEMINI_API_KEY.",
+        },
+        { status: 500 },
+      );
     }
 
     const isFullStage = stage === "full";
 
-    if (isFullStage && (!Array.isArray(categoryScores) || categoryScores.length === 0)) {
-      return NextResponse.json({ error: "Missing categoryScores for full-detail stage." }, { status: 400 });
+    if (
+      isFullStage &&
+      (!Array.isArray(categoryScores) || categoryScores.length === 0)
+    ) {
+      return NextResponse.json(
+        { error: "Missing categoryScores for full-detail stage." },
+        { status: 400 },
+      );
     }
 
     const weakestCategories = isFullStage
@@ -165,50 +197,56 @@ export async function POST(req: NextRequest) {
     const schema = isFullStage ? fullDetailSchema : quickScoreSchema;
     const encoder = new TextEncoder();
 
-    const stream = new ReadableStream({
+    const sseStream = new ReadableStream({
       async start(controller) {
+        const heartbeat = setInterval(() => {
+          controller.enqueue(encoder.encode(": heartbeat\n\n"));
+        }, 5000);
+
         try {
-          const anthropicStream = anthropic.messages.stream({
-            model: "claude-sonnet-4-6",
-            max_tokens: isFullStage ? 1200 : 800,
-            messages: [{ role: "user", content: messageContent }],
-            // @ts-expect-error -- output_config is GA on the API but not yet in SDK types
-            output_config: {
-              format: {
-                type: "json_schema",
-                schema,
-              },
-            },
-          });
-
-          const heartbeat = setInterval(() => {
-            controller.enqueue(encoder.encode(": heartbeat\n\n"));
-          }, 5000);
-
-          anthropicStream.on("text", (textDelta) => {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ delta: textDelta })}\n\n`)
-            );
-          });
-
-          anthropicStream.on("error", (err) => {
-            clearInterval(heartbeat);
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err.message })}\n\n`));
-            controller.close();
-          });
-
-          await anthropicStream.finalMessage();
-          clearInterval(heartbeat);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-          controller.close();
+          for await (const event of streamAnalysis({
+            prompt: messageContent,
+            schema,
+            maxTokens: isFullStage ? 1400 : 900,
+          })) {
+            if (event.type === "delta") {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ delta: event.text })}\n\n`,
+                ),
+              );
+            } else if (event.type === "provider") {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ provider: event.provider })}\n\n`,
+                ),
+              );
+            } else if (event.type === "done") {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`),
+              );
+            } else if (event.type === "error") {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ error: event.message })}\n\n`,
+                ),
+              );
+            }
+          }
         } catch (err: any) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err?.message || "Stream failed" })}\n\n`));
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ error: err?.message || "Stream failed" })}\n\n`,
+            ),
+          );
+        } finally {
+          clearInterval(heartbeat);
           controller.close();
         }
       },
     });
 
-    return new Response(stream, {
+    return new Response(sseStream, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
@@ -217,6 +255,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("Analyze route error:", err);
-    return NextResponse.json({ error: err?.message || "Analysis failed unexpectedly." }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Analysis failed unexpectedly." },
+      { status: 500 },
+    );
   }
-                                        }
+}

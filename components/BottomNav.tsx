@@ -2,17 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-const C = {
-  card: "#111111", border: "#1E1E1E", blue: "#3B82F6", dim: "#52525B",
-};
+import { Icon } from "./ui/Icon";
 
 const items = [
-  { href: "/dashboard", label: "Home", icon: "⊞" },
-  { href: "/inspect", label: "Inspect", icon: "◎" },
-  { href: "/history", label: "History", icon: "◈" },
-  { href: "/templates", label: "Templates", icon: "◆" },
-  { href: "/settings", label: "Settings", icon: "⊙" },
+  { href: "/dashboard", label: "Home", icon: "home" as const },
+  { href: "/inspect", label: "Inspect", icon: "inspect" as const },
+  { href: "/history", label: "History", icon: "history" as const },
+  { href: "/templates", label: "Templates", icon: "templates" as const },
+  { href: "/settings", label: "Settings", icon: "settings" as const },
 ];
 
 export default function BottomNav() {
@@ -20,42 +17,31 @@ export default function BottomNav() {
 
   return (
     <nav
-      style={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        background: C.card,
-        borderTop: `1px solid ${C.border}`,
-        display: "flex",
-        zIndex: 200,
-        paddingBottom: "env(safe-area-inset-bottom)",
-      }}
+      className="fixed bottom-0 inset-x-0 bg-surface/95 backdrop-blur-md border-t border-border z-40"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      {items.map((item) => {
-        const active = pathname === item.href;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              padding: "10px 4px",
-              color: active ? C.blue : C.dim,
-              fontSize: 11,
-              fontWeight: active ? 600 : 400,
-              gap: 3,
-              textDecoration: "none",
-            }}
-          >
-            <span style={{ fontSize: 18 }}>{item.icon}</span>
-            {item.label}
-          </Link>
-        );
-      })}
+      <div className="max-w-3xl mx-auto flex">
+        {items.map((item) => {
+          const active =
+            pathname === item.href ||
+            (item.href !== "/dashboard" && pathname.startsWith(item.href));
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-2xs font-semibold transition-colors ${
+                active ? "text-fg" : "text-dim hover:text-muted"
+              }`}
+            >
+              <Icon name={item.icon} size={18} />
+              <span className="tracking-tight">{item.label}</span>
+              {active && (
+                <span className="absolute top-0 h-px w-8 bg-accent" />
+              )}
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }

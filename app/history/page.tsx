@@ -4,22 +4,30 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import BottomNav from "@/components/BottomNav";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge, RankBadge } from "@/components/ui/Badge";
+import { Score } from "@/components/ui/Score";
+import { Bar } from "@/components/ui/Bar";
+import { Section } from "@/components/ui/Section";
+import { Icon } from "@/components/ui/Icon";
+import { Logo } from "@/components/ui/Logo";
 
-const C = {
-  bg: "#0A0A0A", card: "#111111", border: "#1E1E1E",
-  text: "#FFFFFF", muted: "#A1A1AA", dim: "#52525B",
-  blue: "#3B82F6", green: "#22C55E", orange: "#F59E0B", red: "#EF4444",
-};
-
-const rankColors: Record<string, string> = {
-  Beginner: C.red, Explorer: C.orange, Builder: C.orange,
-  Architect: C.blue, "Prompt Master": C.green,
+type Row = {
+  id: string;
+  title: string;
+  overall_score: number;
+  rank: string;
+  ready_to_build: boolean;
+  created_at: string;
+  full_result: any;
+  provider?: string;
 };
 
 export default function History() {
-  const [history, setHistory] = useState<any[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<any>(null);
+  const [selected, setSelected] = useState<Row | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -30,89 +38,168 @@ export default function History() {
         .eq("device_id", deviceId)
         .order("created_at", { ascending: false })
         .limit(100);
-      setHistory(data || []);
+      setRows((data as Row[]) || []);
       setLoading(false);
     }
     load();
   }, []);
 
   if (selected) {
-    const r = selected.full_result;
+    const r = selected.full_result || {};
+    const cats: { name: string; score: number }[] =
+      r.categories || r.categoryScores || [];
+
     return (
-      <div style={{ minHeight: "100vh", background: C.bg, padding: "32px 20px", paddingBottom: 90 }}>
-        <div style={{ maxWidth: 800, margin: "0 auto" }}>
-          <button
-            onClick={() => setSelected(null)}
-            style={{ background: "none", border: `1px solid ${C.border}`, color: C.muted, padding: "8px 16px", borderRadius: 8, fontSize: 13, marginBottom: 20, cursor: "pointer" }}
-          >
-            ← Back to History
-          </button>
-          <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>{r.title}</h1>
-          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-            <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600, background: (rankColors[r.rank] || C.blue) + "18", color: rankColors[r.rank] || C.blue }}>{r.rank}</span>
+      <div className="min-h-screen bg-bg pb-24">
+        <header className="border-b border-border">
+          <div className="max-w-3xl mx-auto px-5 h-14 flex items-center justify-between">
+            <Logo size={22} />
           </div>
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 16 }}>
-            <div style={{ fontSize: 40, fontWeight: 800, textAlign: "center" }}>{r.overallScore}<span style={{ fontSize: 16, color: C.dim }}>/100</span></div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {r.categories?.map((cat: any) => (
-              <div key={cat.name} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14, display: "flex", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 14 }}>{cat.name}</span>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>{cat.score}/10</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        </header>
+        <main className="max-w-3xl mx-auto px-5 pt-6 flex flex-col gap-6">
+          <Button variant="ghost" size="sm" onClick={() => setSelected(null)}>
+            <Icon name="arrowLeft" size={13} /> Back to History
+          </Button>
+
+          <header className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <RankBadge rank={selected.rank} />
+              {selected.provider === "gemini" && (
+                <Badge tone="gemini">Gemini fallback</Badge>
+              )}
+              <span className="text-xs text-dim">
+                {new Date(selected.created_at).toLocaleString()}
+              </span>
+            </div>
+            <h1 className="text-3xl font-bold tracking-tighter">
+              {selected.title}
+            </h1>
+          </header>
+
+          <Card padding="lg" className="flex flex-col items-center gap-2 py-10">
+            <Score value={selected.overall_score} max={100} size="xl" animate={false} />
+            {selected.ready_to_build ? (
+              <Badge tone="success">
+                <Icon name="check" size={11} /> Ready to build
+              </Badge>
+            ) : (
+              <Badge tone="warning">
+                <Icon name="alert" size={11} /> Needs work
+              </Badge>
+            )}
+          </Card>
+
+          {cats.length > 0 && (
+            <Section title="11 Dimensions">
+              <Card padding="md">
+                <div className="flex flex-col divide-y divide-border">
+                  {cats.map((c) => (
+                    <Bar key={c.name} label={c.name} value={c.score} max={10} />
+                  ))}
+                </div>
+              </Card>
+            </Section>
+          )}
+
+          {r.aiCompatibility && (
+            <Section title="AI Compatibility">
+              <Card padding="md">
+                <div className="flex flex-col divide-y divide-border">
+                  {(["claude", "gemini", "codex", "cursor"] as const).map((k) => (
+                    <Bar
+                      key={k}
+                      label={k[0].toUpperCase() + k.slice(1)}
+                      value={r.aiCompatibility[k]}
+                      max={100}
+                      trailing={`${r.aiCompatibility[k]}%`}
+                    />
+                  ))}
+                </div>
+              </Card>
+            </Section>
+          )}
+
+          {r.improvedPrompt && (
+            <Section title="Improved Prompt">
+              <Card padding="lg" className="bg-surface-2">
+                <pre className="mono text-sm text-fg leading-relaxed whitespace-pre-wrap">
+                  {r.improvedPrompt}
+                </pre>
+              </Card>
+            </Section>
+          )}
+        </main>
         <BottomNav />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, paddingBottom: 90 }}>
-      <div style={{ padding: "40px 20px", maxWidth: 800, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em", marginBottom: 8 }}>History</h1>
-        <p style={{ color: C.muted, fontSize: 15, marginBottom: 28 }}>All your previous prompt analyses.</p>
+    <div className="min-h-screen bg-bg pb-24">
+      <header className="border-b border-border">
+        <div className="max-w-3xl mx-auto px-5 h-14 flex items-center justify-between">
+          <Logo size={22} />
+        </div>
+      </header>
+      <main className="max-w-3xl mx-auto px-5 pt-8 flex flex-col gap-6">
+        <section>
+          <h1 className="text-3xl font-bold tracking-tighter mb-1">History</h1>
+          <p className="text-muted text-md">
+            All your previous prompt analyses, scoped to this device.
+          </p>
+        </section>
 
-        {loading && (
-          <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 40 }}>Loading…</div>
+        {loading && <div className="text-muted text-sm py-12 text-center">Loading…</div>}
+
+        {!loading && rows.length === 0 && (
+          <Card padding="lg" className="text-center py-12">
+            <Icon name="history" size={28} className="text-dim mx-auto mb-3" />
+            <div className="font-semibold mb-1">No analyses yet</div>
+            <div className="text-sm text-muted">
+              Inspect your first prompt to see it here.
+            </div>
+          </Card>
         )}
 
-        {!loading && history.length === 0 && (
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 48, textAlign: "center" }}>
-            <div style={{ fontSize: 32, marginBottom: 16, color: C.dim }}>◎</div>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>No analyses yet</div>
-            <div style={{ color: C.muted, fontSize: 14 }}>Inspect your first prompt to see it here.</div>
-          </div>
-        )}
-
-        {!loading && history.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {history.map((item) => (
+        {!loading && rows.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {rows.map((item) => (
               <button
                 key={item.id}
                 onClick={() => setSelected(item)}
-                style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, cursor: "pointer", textAlign: "left", width: "100%" }}
+                className="bg-surface border border-border rounded-md p-4 flex items-center justify-between gap-3 text-left hover:border-border-strong transition-colors"
               >
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{item.title}</div>
-                  <div style={{ color: C.dim, fontSize: 12 }}>
-                    {new Date(item.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                <div className="min-w-0">
+                  <div className="font-semibold text-sm truncate">
+                    {item.title}
+                  </div>
+                  <div className="text-xs text-dim mt-0.5">
+                    {new Date(item.created_at).toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <span style={{ fontWeight: 800, fontSize: 18, color: item.overall_score >= 70 ? C.green : item.overall_score >= 50 ? C.blue : C.orange }}>
-                    {item.overall_score}/100
-                  </span>
-                  <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600, background: (rankColors[item.rank] || C.blue) + "18", color: rankColors[item.rank] || C.blue }}>
-                    {item.rank}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <RankBadge rank={item.rank} />
+                  <span
+                    className={`mono text-base font-semibold w-12 text-right ${
+                      item.overall_score >= 70
+                        ? "text-success"
+                        : item.overall_score >= 50
+                          ? "text-accent"
+                          : "text-warning"
+                    }`}
+                  >
+                    {item.overall_score}
                   </span>
                 </div>
               </button>
             ))}
           </div>
         )}
-      </div>
+      </main>
       <BottomNav />
     </div>
   );

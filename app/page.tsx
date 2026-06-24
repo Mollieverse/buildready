@@ -1,69 +1,115 @@
 import Link from "next/link";
-
-const C = {
-  bg: "#0A0A0A", card: "#111111", border: "#1E1E1E",
-  text: "#FFFFFF", muted: "#A1A1AA", dim: "#52525B",
-  blue: "#3B82F6", green: "#22C55E", orange: "#F59E0B", red: "#EF4444",
-};
+import { LinkButton } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Icon } from "@/components/ui/Icon";
+import { Logo } from "@/components/ui/Logo";
 
 const features = [
-  { icon: "⚡", title: "Prompt Intelligence", desc: "11-dimension framework scores every aspect of your build prompt instantly." },
-  { icon: "◎", title: "Build Readiness Score", desc: "Get a 0–100 score and a rank from Beginner to Prompt Master." },
-  { icon: "⊗", title: "Missing Requirements", desc: "Detect gaps in user roles, data models, security, and edge cases before you build." },
-  { icon: "◈", title: "AI Compatibility", desc: "See how Claude, Gemini, Codex, and Cursor will interpret your prompt differently." },
-  { icon: "⊞", title: "Prompt Simulation", desc: "Preview exactly what AI will build, misunderstand, and skip over." },
-  { icon: "◆", title: "Improved Prompt", desc: "Receive a fast, focused rewrite targeting your prompt's biggest gaps." },
+  {
+    icon: "score" as const,
+    title: "Prompt Intelligence",
+    desc: "An 11-dimension framework grades every aspect of your build prompt the moment you paste it.",
+  },
+  {
+    icon: "sparkle" as const,
+    title: "Build Readiness Score",
+    desc: "A single 0–100 number and a rank — Beginner to Prompt Master — that tell you whether to ship the prompt as-is.",
+  },
+  {
+    icon: "gap" as const,
+    title: "Missing Requirements",
+    desc: "Surface gaps in user roles, data models, security, and edge cases before any code gets generated.",
+  },
+  {
+    icon: "branch" as const,
+    title: "AI Compatibility",
+    desc: "Predict how Claude, Gemini, Codex, and Cursor will each interpret — and diverge on — your prompt.",
+  },
+  {
+    icon: "stack" as const,
+    title: "Prompt Simulation",
+    desc: "See exactly what the AI will build correctly, what it'll misunderstand, and what it'll skip.",
+  },
+  {
+    icon: "shield" as const,
+    title: "Improved Prompt",
+    desc: "Receive a tight rewrite that targets the lowest-scoring dimensions, in your own voice.",
+  },
 ];
 
 export default function LandingPage() {
   return (
-    <div style={{ minHeight: "100vh", background: C.bg }}>
-      <nav style={{ borderBottom: `1px solid ${C.border}`, padding: "0 24px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, background: C.bg + "EE", backdropFilter: "blur(12px)", zIndex: 100 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 28, height: 28, background: C.blue, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#fff" }}>B</div>
-          <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em" }}>BuildReady</span>
+    <div className="min-h-screen bg-bg">
+      <nav className="sticky top-0 z-40 border-b border-border bg-bg/85 backdrop-blur-md">
+        <div className="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
+          <Logo />
+          <div className="flex items-center gap-2">
+            <Link
+              href="/dashboard"
+              className="text-sm text-muted hover:text-fg transition-colors px-3 py-1.5"
+            >
+              Dashboard
+            </Link>
+            <LinkButton href="/inspect" size="sm">
+              Inspect prompt <Icon name="arrowRight" size={13} />
+            </LinkButton>
+          </div>
         </div>
-        <Link href="/dashboard" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 18px", borderRadius: 8, background: C.blue, color: "#fff", fontWeight: 600, fontSize: 14, textDecoration: "none" }}>
-          Get Started →
-        </Link>
       </nav>
 
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "100px 24px 70px", textAlign: "center" }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 14px", borderRadius: 999, background: C.blue + "15", border: `1px solid ${C.blue}30`, color: C.blue, fontSize: 12, fontWeight: 600, marginBottom: 32, letterSpacing: "0.04em" }}>
-          ◆ AI-POWERED PROMPT ANALYSIS
+      <section className="max-w-3xl mx-auto px-5 pt-24 pb-20 text-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-sm border border-accent-line bg-accent-soft text-accent text-2xs font-semibold uppercase tracking-tight mb-10">
+          <Icon name="sparkle" size={11} />
+          AI-powered prompt analysis
         </div>
-        <h1 style={{ fontSize: "clamp(36px,8vw,72px)", fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1.05, marginBottom: 24, color: C.text }}>
-          Stop Wasting AI Credits<br />
-          <span style={{ color: C.blue }}>On Bad Prompts</span>
+        <h1 className="text-5xl sm:text-6xl font-bold tracking-tightest leading-[1.05] mb-6">
+          Stop wasting AI credits
+          <br />
+          <span className="text-muted">on bad prompts.</span>
         </h1>
-        <p style={{ fontSize: "clamp(16px,2vw,20px)", color: C.muted, maxWidth: 600, margin: "0 auto 40px", lineHeight: 1.6 }}>
-          Analyze, score, and improve software build prompts before sending them to Claude, Gemini, Cursor, or any AI coding tool.
+        <p className="text-lg text-muted max-w-xl mx-auto mb-10 leading-relaxed">
+          BuildReady scores, simulates, and rewrites your software build prompts
+          before sending them to Claude, Gemini, Codex, or Cursor — so the AI
+          builds what you meant the first time.
         </p>
-        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-          <Link href="/dashboard" style={{ display: "inline-flex", alignItems: "center", padding: "14px 28px", fontSize: 16, borderRadius: 10, background: C.blue, color: "#fff", fontWeight: 600, textDecoration: "none" }}>
-            Inspect My Prompt →
-          </Link>
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <LinkButton href="/inspect">
+            Inspect my prompt <Icon name="arrowRight" size={14} />
+          </LinkButton>
+          <LinkButton href="/templates" variant="ghost">
+            Browse templates
+          </LinkButton>
         </div>
-        <div style={{ marginTop: 24, display: "flex", gap: 24, justifyContent: "center", flexWrap: "wrap" }}>
-          {["11 Score Dimensions", "AI Compatibility Check", "Fast Prompt Rewrite"].map((t) => (
-            <span key={t} style={{ color: C.dim, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ color: C.green }}>✓</span> {t}
-            </span>
-          ))}
+        <div className="mt-8 flex gap-6 justify-center flex-wrap text-xs text-dim">
+          {["11 score dimensions", "Claude + Gemini", "Fast prompt rewrite"].map(
+            (t) => (
+              <span key={t} className="inline-flex items-center gap-1.5">
+                <Icon name="check" size={12} className="text-success" />
+                {t}
+              </span>
+            ),
+          )}
         </div>
-      </div>
+      </section>
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px 100px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 1, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+      <section className="max-w-5xl mx-auto px-5 pb-32">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-border border border-border rounded-lg overflow-hidden">
           {features.map((f) => (
-            <div key={f.title} style={{ padding: 28, background: C.card, borderRight: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 22, marginBottom: 12, color: C.blue }}>{f.icon}</div>
-              <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 15 }}>{f.title}</div>
-              <div style={{ color: C.muted, fontSize: 14, lineHeight: 1.6 }}>{f.desc}</div>
+            <div key={f.title} className="bg-surface p-7">
+              <Icon name={f.icon} size={18} className="text-accent mb-4" />
+              <div className="font-semibold mb-2">{f.title}</div>
+              <div className="text-sm text-muted leading-relaxed">{f.desc}</div>
             </div>
           ))}
         </div>
-      </div>
+      </section>
+
+      <footer className="border-t border-border">
+        <div className="max-w-6xl mx-auto px-5 py-8 flex items-center justify-between text-xs text-dim">
+          <Logo size={18} />
+          <span>Built with Claude · Gemini fallback</span>
+        </div>
+      </footer>
     </div>
   );
 }
