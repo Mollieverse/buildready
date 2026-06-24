@@ -70,31 +70,28 @@ export function useAnalyzeStream<T>() {
           for (const line of frame.split("\n")) {
             if (!line.startsWith("data: ")) continue;
             const payload = line.slice(6);
+            let msg: any;
             try {
-              const msg = JSON.parse(payload);
-              if (typeof msg.provider === "string") {
-                setProvider(msg.provider as Provider);
-              }
-              if (typeof msg.delta === "string") {
-                textAcc += msg.delta;
-                const parsed = parsePartialJson<T>(textAcc);
-                if (parsed) setPartial(parsed);
-              }
-              if (msg.error) {
-                throw new Error(msg.error);
-              }
-              if (msg.done) {
-                // final parse attempt
-                const parsed = parsePartialJson<T>(textAcc);
-                if (parsed) setPartial(parsed);
-                setStatus("done");
-                return;
-              }
-            } catch (parseErr: any) {
-              // Either a bad JSON SSE line (ignore) or an explicit error.
-              if (parseErr?.message && parseErr.message !== "Unexpected end of JSON input") {
-                throw parseErr;
-              }
+              msg = JSON.parse(payload);
+            } catch {
+              continue; // skip malformed SSE line; the next frame will catch up
+            }
+            if (typeof msg.provider === "string") {
+              setProvider(msg.provider as Provider);
+            }
+            if (typeof msg.delta === "string") {
+              textAcc += msg.delta;
+              const parsed = parsePartialJson<T>(textAcc);
+              if (parsed) setPartial(parsed);
+            }
+            if (msg.error) {
+              throw new Error(msg.error);
+            }
+            if (msg.done) {
+              const parsed = parsePartialJson<T>(textAcc);
+              if (parsed) setPartial(parsed);
+              setStatus("done");
+              return;
             }
           }
         }

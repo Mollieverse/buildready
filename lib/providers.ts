@@ -24,7 +24,7 @@ const gemini = process.env.GEMINI_API_KEY
   : null;
 
 // Convert our JSON Schema dialect to Gemini's flavor.
-// Gemini wants: SchemaType enum strings, no additionalProperties, no "integer" (use "number"+format).
+// Gemini: SchemaType enum strings, no additionalProperties, "integer" → number+format.
 function toGeminiSchema(schema: any): any {
   if (Array.isArray(schema)) return schema.map(toGeminiSchema);
   if (!schema || typeof schema !== "object") return schema;
@@ -60,6 +60,10 @@ function toGeminiSchema(schema: any): any {
   return out;
 }
 
+// Claude doesn't have a native JSON Schema response mode in SDK 0.32.x.
+// We force structured output via tool use: Claude must call our `respond`
+// tool, whose input_schema IS our schema. The streaming deltas arrive as
+// `input_json_delta` events; their `partial_json` is the streaming JSON.
 async function* runClaude({
   prompt,
   schema,
@@ -73,24 +77,28 @@ async function* runClaude({
     model: "claude-sonnet-4-6",
     max_tokens: maxTokens,
     messages: [{ role: "user", content: prompt }],
-    // @ts-expect-error -- output_config is GA on the API but not yet in SDK types
-    output_config: { format: { type: "json_schema", schema } },
-  });
-
-  let errored: Error | null = null;
-  stream.on("error", (e) => {
-    errored = e;
+    tools: [
+      {
+        name: "respond",
+        description: "Return the structured analysis result.",
+        input_schema: schema as any,
+      },
+    ],
+    tool_choice: { type: "tool", name: "respond" },
   });
 
   for await (const event of stream) {
-    if (errored) throw errored;
     if (
       event.type === "content_block_delta" &&
-      event.delta.type === "text_delta"
+      (event.delta as any).type === "input_json_delta"
     ) {
-      yield { type: "delta", text: event.delta.text };
+      const partial = (event.delta as any).partial_json as string | undefined;
+      if (partial) yield { type: "delta", text: partial };
     }
   }
+
+  // Surface any error caught by the stream after iteration completes.
+  // finalMessage() throws if the request failed.
   await stream.finalMessage();
   yield { type: "done" };
 }
@@ -122,8 +130,7 @@ async function* runGemini({
 }
 
 // Try Claude. If it fails before emitting any text, fall back to Gemini.
-// If it fails mid-stream, we surface the partial as an error rather than
-// double-billing the user with two providers' output.
+// If it fails mid-stream, surface the error rather than double-billing.
 export async function* streamAnalysis(
   args: StreamArgs,
 ): AsyncGenerator<StreamEvent, void, unknown> {
@@ -140,23 +147,21 @@ export async function* streamAnalysis(
   }
 
   if (claudeAvailable) {
-    const primary = runClaude(args);
-    let firstYielded = false;
+    let firstDeltaYielded = false;
     try {
-      for await (const ev of primary) {
-        firstYielded = ev.type === "delta" ? true : firstYielded;
+      for await (const ev of runClaude(args)) {
+        if (ev.type === "delta") firstDeltaYielded = true;
         yield ev;
       }
       return;
     } catch (err: any) {
-      if (firstYielded || !geminiAvailable) {
-        yield {
-          type: "error",
-          message: err?.message || "Claude stream failed.",
-        };
+      const message = err?.message || "Claude stream failed.";
+      if (firstDeltaYielded || !geminiAvailable) {
+        yield { type: "error", message };
         return;
       }
-      // Otherwise fall through to Gemini.
+      // Otherwise fall through to Gemini, optionally letting the UI know.
+      console.warn("Claude failed before producing output, falling back to Gemini:", message);
     }
   }
 

@@ -745,8 +745,11 @@ function Step4({
     setSaveErr(null);
     try {
       const deviceId = getDeviceId();
+      // Base row that maps to common columns + the `prompt` NOT NULL column.
       const row: any = {
         device_id: deviceId,
+        prompt: state.prompt,
+        improved_prompt: state.full!.improvedPrompt,
         title: state.quick!.title,
         overall_score: state.quick!.overallScore,
         rank: state.quick!.rank,
@@ -757,38 +760,34 @@ function Step4({
           categories: state.quick!.categoryScores,
         },
       };
-      // Only include provider if it's known; DBs without the column will reject if we always send it.
       if (state.quickProvider || state.fullProvider) {
         row.provider = state.fullProvider || state.quickProvider;
       }
-      const { error } = await supabase.from("analyses").insert(row);
-      if (error) throw error;
-      setSaved(true);
-    } catch (e: any) {
-      // If the failure is because of a missing column, retry without it.
-      if (e?.message?.toLowerCase?.().includes("provider")) {
-        try {
-          const deviceId = getDeviceId();
-          const { error } = await supabase.from("analyses").insert({
-            device_id: deviceId,
-            title: state.quick!.title,
-            overall_score: state.quick!.overallScore,
-            rank: state.quick!.rank,
-            ready_to_build: state.quick!.readyToBuild,
-            full_result: {
-              ...state.quick,
-              ...state.full,
-              categories: state.quick!.categoryScores,
-            },
-          });
-          if (error) throw error;
+
+      // Insert with graceful column drop: if the DB rejects a missing column,
+      // drop it and retry. Loop because there may be more than one mismatch.
+      const dropable = ["provider", "improved_prompt", "ready_to_build", "rank"];
+      let attempt = { ...row };
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { error } = await supabase.from("analyses").insert(attempt);
+        if (!error) {
           setSaved(true);
-        } catch (e2: any) {
-          setSaveErr(e2.message || "Save failed.");
+          return;
         }
-      } else {
-        setSaveErr(e?.message || "Save failed.");
+        // Postgres "column ... does not exist" comes through as
+        // PGRST204 / "Could not find the 'foo' column" etc.
+        const msg = (error.message || "").toLowerCase();
+        const stripped = dropable.find(
+          (k) => msg.includes(`'${k}'`) || msg.includes(` ${k} `),
+        );
+        if (!stripped || !(stripped in attempt)) {
+          throw error;
+        }
+        delete attempt[stripped];
       }
+    } catch (e: any) {
+      setSaveErr(e?.message || "Save failed.");
     } finally {
       setSaving(false);
     }

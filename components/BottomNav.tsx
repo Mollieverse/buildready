@@ -29,15 +29,15 @@ export default function BottomNav() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-2xs font-semibold transition-colors ${
+              className={`relative flex-1 flex flex-col items-center gap-1 py-2.5 text-2xs font-semibold transition-colors ${
                 active ? "text-fg" : "text-dim hover:text-muted"
               }`}
             >
+              {active && (
+                <span className="absolute top-0 left-1/2 -translate-x-1/2 h-px w-8 bg-accent" />
+              )}
               <Icon name={item.icon} size={18} />
               <span className="tracking-tight">{item.label}</span>
-              {active && (
-                <span className="absolute top-0 h-px w-8 bg-accent" />
-              )}
             </Link>
           );
         })}
